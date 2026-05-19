@@ -198,6 +198,14 @@ img {
   gap: 16px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .logo-button,
 .search-pill,
 .muted-row,
@@ -231,6 +239,52 @@ img {
   color: #4b5563;
   border-radius: 999px;
   background: #f3f4f6;
+}
+
+.user-chip,
+.logout-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.user-chip {
+  color: #1f2937;
+  background: #e0f2fe;
+}
+
+.logout-button {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+.toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 50;
+  transform: translateX(-50%);
+  max-width: min(92vw, 420px);
+  padding: 12px 16px;
+  color: #fff;
+  border-radius: 999px;
+  background: #111827;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.24);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.form-error {
+  margin: -4px 0 0;
+  padding: 10px 12px;
+  color: #991b1b;
+  border-radius: 10px;
+  background: #fee2e2;
+  font-size: 0.9rem;
 }
 
 .main-space {
@@ -299,6 +353,10 @@ img {
   border-radius: 999px;
   background: #fff;
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
+}
+
+.round-button.favorite {
+  color: #e11d48;
 }
 
 .image-box .round-button {
@@ -871,6 +929,11 @@ img {
     align-items: flex-start;
     flex-direction: column;
     padding: 14px 0;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .search-pill {

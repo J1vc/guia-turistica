@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { db } from "./database";
 import "./styles.css";
 
 const iconPaths = {
@@ -214,6 +215,19 @@ const categories = ["Todos", "Monumentos", "Paseos", "Patrimonio", "Naturaleza",
 function App() {
   const [page, setPage] = useState("login");
   const [selectedPlaceId, setSelectedPlaceId] = useState(1);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [favorites, setFavorites] = useState([]);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    db.getCurrentUser().then((user) => {
+      setCurrentUser(user);
+      if (user) {
+        db.getFavorites(user.id).then(setFavorites);
+        setPage("home");
+      }
+    });
+  }, []);
 
   const go = (nextPage, id = selectedPlaceId) => {
     setSelectedPlaceId(id);
@@ -221,23 +235,74 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  if (page === "register") return <Register go={go} />;
-  if (page === "home") return <Home go={go} />;
-  if (page === "search") return <SearchPage go={go} />;
-  if (page === "detail") return <PlaceDetail go={go} placeId={selectedPlaceId} />;
-  if (page === "comments") return <Comments go={go} placeId={selectedPlaceId} />;
-  return <Login go={go} />;
+  const showNotice = (message) => {
+    setNotice(message);
+    window.setTimeout(() => setNotice(""), 2600);
+  };
+
+  const handleAuth = (user) => {
+    setCurrentUser(user);
+    db.getFavorites(user.id).then(setFavorites);
+    go("home");
+  };
+
+  const logout = async () => {
+    await db.logoutUser();
+    setCurrentUser(null);
+    setFavorites([]);
+    go("login");
+  };
+
+  const toggleFavorite = async (placeId) => {
+    try {
+      if (!currentUser) {
+        showNotice("Inicia sesion para guardar favoritos.");
+        return;
+      }
+
+      const isFavorite = await db.toggleFavorite(currentUser.id, placeId);
+      setFavorites((items) => (isFavorite ? [...items, placeId] : items.filter((id) => id !== placeId)));
+      showNotice(isFavorite ? "Destino agregado a favoritos." : "Destino eliminado de favoritos.");
+    } catch (error) {
+      showNotice(error.message);
+    }
+  };
+
+  const appProps = { go, currentUser, favorites, toggleFavorite, logout, showNotice };
+
+  return (
+    <>
+      {notice && <div className="toast">{notice}</div>}
+      {page === "register" && <Register go={go} onAuth={handleAuth} />}
+      {page === "home" && <Home {...appProps} />}
+      {page === "search" && <SearchPage {...appProps} />}
+      {page === "detail" && <PlaceDetail {...appProps} placeId={selectedPlaceId} />}
+      {page === "comments" && <Comments {...appProps} placeId={selectedPlaceId} />}
+      {page === "login" && <Login go={go} onAuth={handleAuth} />}
+    </>
+  );
 }
 
-function Login({ go }) {
+function Login({ go, onAuth }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
   return (
     <AuthShell title="Guia turistica" subtitle="Descubre Barranquilla">
-      <form className="form" onSubmit={(event) => { event.preventDefault(); go("home"); }}>
+      <form className="form" onSubmit={async (event) => {
+        event.preventDefault();
+        setError("");
+        try {
+          const user = await db.loginUser({ email, password });
+          onAuth(user);
+        } catch (authError) {
+          setError(authError.message);
+        }
+      }}>
         <Field icon="mail" label="Correo electronico" type="email" value={email} setValue={setEmail} placeholder="tu@email.com" />
         <Field icon="lock" label="Contrasena" type="password" value={password} setValue={setPassword} placeholder="********" />
+        {error && <p className="form-error">{error}</p>}
         <div className="auth-options">
           <label><input type="checkbox" /> Recordarme</label>
           <button type="button" className="link-button">Olvidaste tu contrasena?</button>
@@ -249,24 +314,32 @@ function Login({ go }) {
   );
 }
 
-function Register({ go }) {
+function Register({ go, onAuth }) {
   const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "" });
+  const [error, setError] = useState("");
   const setValue = (key) => (value) => setForm((current) => ({ ...current, [key]: value }));
 
   return (
     <AuthShell title="Crear cuenta" subtitle="Unete a nuestra comunidad">
-      <form className="form" onSubmit={(event) => {
+      <form className="form" onSubmit={async (event) => {
         event.preventDefault();
+        setError("");
         if (form.password !== form.confirm) {
-          alert("Las contrasenas no coinciden");
+          setError("Las contrasenas no coinciden.");
           return;
         }
-        go("home");
+        try {
+          const user = await db.registerUser({ name: form.name, email: form.email, password: form.password });
+          onAuth(user);
+        } catch (registerError) {
+          setError(registerError.message);
+        }
       }}>
         <Field icon="user" label="Nombre completo" value={form.name} setValue={setValue("name")} placeholder="Tu nombre" />
         <Field icon="mail" label="Correo electronico" type="email" value={form.email} setValue={setValue("email")} placeholder="tu@email.com" />
         <Field icon="lock" label="Contrasena" type="password" value={form.password} setValue={setValue("password")} placeholder="********" />
         <Field icon="lock" label="Confirmar contrasena" type="password" value={form.confirm} setValue={setValue("confirm")} placeholder="********" />
+        {error && <p className="form-error">{error}</p>}
         <button className="primary-button" type="submit">Registrarse</button>
       </form>
       <p className="auth-switch">Ya tienes cuenta? <button onClick={() => go("login")}>Inicia sesion</button></p>
@@ -301,7 +374,7 @@ function Field({ icon, label, type = "text", value, setValue, placeholder }) {
   );
 }
 
-function Header({ go }) {
+function Header({ go, currentUser, logout }) {
   return (
     <header className="topbar">
       <div className="container topbar-inner">
@@ -309,24 +382,36 @@ function Header({ go }) {
           <Icon name="map" className="blue" />
           <span>Guia turistica</span>
         </button>
-        <button className="search-pill" onClick={() => go("search")}>
-          <Icon name="search" size={16} />
-          <span>Buscar destinos...</span>
-        </button>
+        <div className="topbar-actions">
+          <button className="search-pill" onClick={() => go("search")}>
+            <Icon name="search" size={16} />
+            <span>Buscar destinos...</span>
+          </button>
+          {currentUser && <span className="user-chip">{currentUser.name}</span>}
+          {currentUser && <button className="logout-button" onClick={logout}>Salir</button>}
+        </div>
       </div>
     </header>
   );
 }
 
-function Home({ go }) {
+function Home({ go, currentUser, favorites, toggleFavorite, logout }) {
   return (
     <div className="app-page">
-      <Header go={go} />
+      <Header go={go} currentUser={currentUser} logout={logout} />
       <main className="container main-space bottom-safe">
         <section>
           <h2 className="section-title">Sitios Turisticos de Barranquilla</h2>
           <div className="place-grid">
-            {places.slice(0, 6).map((place) => <PlaceCard key={place.id} place={place} go={go} />)}
+            {places.slice(0, 6).map((place) => (
+              <PlaceCard
+                key={place.id}
+                place={place}
+                go={go}
+                isFavorite={favorites.includes(place.id)}
+                toggleFavorite={toggleFavorite}
+              />
+            ))}
           </div>
         </section>
         <section className="cta-band">
@@ -340,12 +425,12 @@ function Home({ go }) {
   );
 }
 
-function PlaceCard({ place, go }) {
+function PlaceCard({ place, go, isFavorite = false, toggleFavorite = () => {} }) {
   return (
     <article className="place-card" onClick={() => go("detail", place.id)}>
       <div className="image-box">
         <img src={place.image} alt={place.name} />
-        <button className="round-button" onClick={(event) => event.stopPropagation()}><Icon name="heart" /></button>
+        <button className={`round-button ${isFavorite ? "favorite" : ""}`} onClick={(event) => { event.stopPropagation(); toggleFavorite(place.id); }}><Icon name="heart" filled={isFavorite} /></button>
         <span className="category-badge">{place.category}</span>
       </div>
       <div className="card-body">
@@ -411,9 +496,10 @@ function ResultCard({ place, go }) {
   );
 }
 
-function PlaceDetail({ go, placeId }) {
+function PlaceDetail({ go, placeId, favorites, toggleFavorite }) {
   const place = places.find((item) => item.id === placeId) || places[0];
   const gallery = place.gallery || [place.image, place.image, place.image];
+  const isFavorite = favorites.includes(place.id);
 
   return (
     <div className="app-page">
@@ -421,7 +507,7 @@ function PlaceDetail({ go, placeId }) {
         <img src={place.image} alt={place.name} />
         <div className="hero-actions">
           <button className="round-button" onClick={() => go("home")}><Icon name="back" /></button>
-          <div><button className="round-button"><Icon name="share" /></button><button className="round-button"><Icon name="heart" /></button></div>
+          <div><button className="round-button"><Icon name="share" /></button><button className={`round-button ${isFavorite ? "favorite" : ""}`} onClick={() => toggleFavorite(place.id)}><Icon name="heart" filled={isFavorite} /></button></div>
         </div>
       </section>
       <main className="container detail-wrap">
@@ -456,10 +542,29 @@ function ContentSection({ title, action, children }) {
   return <section className="content-section"><div className="section-head"><h2>{title}</h2>{action}</div>{children}</section>;
 }
 
-function Comments({ go, placeId }) {
+function Comments({ go, placeId, currentUser, showNotice }) {
   const [newComment, setNewComment] = useState("");
   const [rating, setRating] = useState(5);
-  const comments = commentsData[placeId] || commentsData[1];
+  const [comments, setComments] = useState([]);
+
+  useEffect(() => {
+    db.getComments(placeId).then(setComments);
+  }, [placeId]);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!newComment.trim()) return;
+
+    try {
+      const savedComment = await db.addComment({ placeId, user: currentUser, text: newComment.trim(), rating });
+      setComments((items) => [savedComment, ...items]);
+      setNewComment("");
+      setRating(5);
+      showNotice("Comentario guardado.");
+    } catch (error) {
+      showNotice(error.message);
+    }
+  };
 
   return (
     <div className="app-page comments-page">
@@ -477,7 +582,7 @@ function Comments({ go, placeId }) {
         </section>
         <section className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} />)}</section>
       </main>
-      <form className="comment-form" onSubmit={(event) => { event.preventDefault(); setNewComment(""); setRating(5); }}>
+      <form className="comment-form" onSubmit={handleSubmit}>
         <div className="container narrow">
           <div className="comment-tools"><span className="avatar-placeholder"><Icon name="user" size={18} /></span><StarPicker rating={rating} setRating={setRating} /></div>
           <div className="comment-input-row"><input value={newComment} onChange={(event) => setNewComment(event.target.value)} placeholder="Escribe tu comentario..." /><button disabled={!newComment.trim()}><Icon name="send" size={16} /> Enviar</button></div>
