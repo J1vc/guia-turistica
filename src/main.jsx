@@ -212,11 +212,34 @@ const commentsData = {
 
 const categories = ["Todos", "Monumentos", "Paseos", "Patrimonio", "Naturaleza", "Museos"];
 
+function buildPlaceStats(comments) {
+  return comments.reduce((stats, comment) => {
+    const placeId = Number(comment.place_id);
+    const current = stats[placeId] || { count: 0, totalRating: 0, average: null };
+    const totalRating = current.totalRating + Number(comment.rating || 0);
+    const count = current.count + 1;
+
+    return {
+      ...stats,
+      [placeId]: {
+        count,
+        totalRating,
+        average: Number((totalRating / count).toFixed(1)),
+      },
+    };
+  }, {});
+}
+
+function getPlaceStats(stats, placeId) {
+  return stats[placeId] || { count: 0, totalRating: 0, average: null };
+}
+
 function App() {
   const [page, setPage] = useState("login");
   const [selectedPlaceId, setSelectedPlaceId] = useState(1);
   const [currentUser, setCurrentUser] = useState(null);
   const [favorites, setFavorites] = useState([]);
+  const [placeStats, setPlaceStats] = useState({});
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -227,6 +250,7 @@ function App() {
         setPage("home");
       }
     });
+    db.getAllComments().then((comments) => setPlaceStats(buildPlaceStats(comments)));
   }, []);
 
   const go = (nextPage, id = selectedPlaceId) => {
@@ -268,7 +292,25 @@ function App() {
     }
   };
 
-  const appProps = { go, currentUser, favorites, toggleFavorite, logout, showNotice };
+  const handleCommentAdded = (comment) => {
+    setPlaceStats((current) => {
+      const placeId = Number(comment.place_id);
+      const previous = getPlaceStats(current, placeId);
+      const totalRating = previous.totalRating + Number(comment.rating || 0);
+      const count = previous.count + 1;
+
+      return {
+        ...current,
+        [placeId]: {
+          count,
+          totalRating,
+          average: Number((totalRating / count).toFixed(1)),
+        },
+      };
+    });
+  };
+
+  const appProps = { go, currentUser, favorites, toggleFavorite, logout, showNotice, placeStats, handleCommentAdded };
 
   return (
     <>
@@ -278,6 +320,7 @@ function App() {
       {page === "search" && <SearchPage {...appProps} />}
       {page === "detail" && <PlaceDetail {...appProps} placeId={selectedPlaceId} />}
       {page === "comments" && <Comments {...appProps} placeId={selectedPlaceId} />}
+      {page === "profile" && <ProfilePage {...appProps} />}
       {page === "login" && <Login go={go} onAuth={handleAuth} />}
     </>
   );
@@ -387,7 +430,7 @@ function Header({ go, currentUser, logout }) {
             <Icon name="search" size={16} />
             <span>Buscar destinos...</span>
           </button>
-          {currentUser && <span className="user-chip">{currentUser.name}</span>}
+          {currentUser && <button className="user-chip" onClick={() => go("profile")}>{currentUser.name}</button>}
           {currentUser && <button className="logout-button" onClick={logout}>Salir</button>}
         </div>
       </div>
@@ -395,7 +438,7 @@ function Header({ go, currentUser, logout }) {
   );
 }
 
-function Home({ go, currentUser, favorites, toggleFavorite, logout }) {
+function Home({ go, currentUser, favorites, toggleFavorite, logout, placeStats }) {
   return (
     <div className="app-page">
       <Header go={go} currentUser={currentUser} logout={logout} />
@@ -410,6 +453,7 @@ function Home({ go, currentUser, favorites, toggleFavorite, logout }) {
                 go={go}
                 isFavorite={favorites.includes(place.id)}
                 toggleFavorite={toggleFavorite}
+                stats={getPlaceStats(placeStats, place.id)}
               />
             ))}
           </div>
@@ -425,7 +469,7 @@ function Home({ go, currentUser, favorites, toggleFavorite, logout }) {
   );
 }
 
-function PlaceCard({ place, go, isFavorite = false, toggleFavorite = () => {} }) {
+function PlaceCard({ place, go, isFavorite = false, toggleFavorite = () => {}, stats = getPlaceStats({}, 0) }) {
   return (
     <article className="place-card" onClick={() => go("detail", place.id)}>
       <div className="image-box">
@@ -437,15 +481,16 @@ function PlaceCard({ place, go, isFavorite = false, toggleFavorite = () => {} })
         <h3>{place.name}</h3>
         <p className="muted-row"><Icon name="map" size={16} /> {place.location}</p>
         <div className="card-footer">
-          <span className="rating"><Icon name="star" size={16} filled /> {place.rating}</span>
+          <span className="rating"><Icon name="star" size={16} filled /> {stats.count > 0 ? stats.average : "Sin valoraciones"}</span>
           <button>Ver detalles</button>
         </div>
+        <p className="review-count">{stats.count} {stats.count === 1 ? "comentario" : "comentarios"}</p>
       </div>
     </article>
   );
 }
 
-function SearchPage({ go }) {
+function SearchPage({ go, placeStats }) {
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("Todos");
   const [showFilters, setShowFilters] = useState(false);
@@ -476,30 +521,32 @@ function SearchPage({ go }) {
         {filteredPlaces.length === 0 ? (
           <section className="empty-state"><Icon name="search" size={62} /><h2>No se encontraron resultados</h2><p>Intenta con otros terminos de busqueda o filtros.</p></section>
         ) : (
-          <div className="result-grid">{filteredPlaces.map((place) => <ResultCard key={place.id} place={place} go={go} />)}</div>
+          <div className="result-grid">{filteredPlaces.map((place) => <ResultCard key={place.id} place={place} go={go} stats={getPlaceStats(placeStats, place.id)} />)}</div>
         )}
       </main>
     </div>
   );
 }
 
-function ResultCard({ place, go }) {
+function ResultCard({ place, go, stats = getPlaceStats({}, 0) }) {
   return (
     <article className="result-card" onClick={() => go("detail", place.id)}>
       <img src={place.image} alt={place.name} />
       <div>
         <div className="result-title"><h3>{place.name}</h3><span>{place.category}</span></div>
         <p className="muted-row small"><Icon name="map" size={14} /> {place.location}</p>
-        <div className="card-footer"><span className="rating"><Icon name="star" size={16} filled /> {place.rating}</span><button>Ver mas</button></div>
+        <div className="card-footer"><span className="rating"><Icon name="star" size={16} filled /> {stats.count > 0 ? stats.average : "Sin valoraciones"}</span><button>Ver mas</button></div>
+        <p className="review-count">{stats.count} {stats.count === 1 ? "comentario" : "comentarios"}</p>
       </div>
     </article>
   );
 }
 
-function PlaceDetail({ go, placeId, favorites, toggleFavorite }) {
+function PlaceDetail({ go, placeId, favorites, toggleFavorite, placeStats }) {
   const place = places.find((item) => item.id === placeId) || places[0];
   const gallery = place.gallery || [place.image, place.image, place.image];
   const isFavorite = favorites.includes(place.id);
+  const stats = getPlaceStats(placeStats, place.id);
 
   return (
     <div className="app-page">
@@ -514,7 +561,10 @@ function PlaceDetail({ go, placeId, favorites, toggleFavorite }) {
         <article className="detail-card">
           <h1>{place.name}</h1>
           <p className="muted-row"><Icon name="map" /> {place.location}</p>
-          <div className="detail-rating"><span className="rating"><Icon name="star" filled /> {place.rating}</span><span>({place.reviews} resenas)</span></div>
+          <div className="detail-rating">
+            <span className="rating"><Icon name="star" filled /> {stats.count > 0 ? stats.average : "Sin valoraciones"}</span>
+            <span>({stats.count} {stats.count === 1 ? "comentario" : "comentarios"})</span>
+          </div>
           <div className="info-grid">
             <InfoTile color="blue" icon="clock" title="Horario" value={place.hours || "Consultar horarios"} />
             <InfoTile color="green" icon="money" title="Precio" value={place.price || "Consultar precio"} />
@@ -527,7 +577,7 @@ function PlaceDetail({ go, placeId, favorites, toggleFavorite }) {
           <ContentSection title="Galeria" action={<button className="gallery-action"><Icon name="camera" size={16} /> Ver todas</button>}>
             <div className="gallery">{gallery.map((image, index) => <img key={image + index} src={image} alt={`Galeria ${index + 1}`} />)}</div>
           </ContentSection>
-          <button className="primary-button wide" onClick={() => go("comments", place.id)}><Icon name="message" /> Ver comentarios ({place.reviews})</button>
+          <button className="primary-button wide" onClick={() => go("comments", place.id)}><Icon name="message" /> Ver comentarios ({stats.count})</button>
         </article>
       </main>
     </div>
@@ -542,10 +592,16 @@ function ContentSection({ title, action, children }) {
   return <section className="content-section"><div className="section-head"><h2>{title}</h2>{action}</div>{children}</section>;
 }
 
-function Comments({ go, placeId, currentUser, showNotice }) {
+function Comments({ go, placeId, currentUser, showNotice, handleCommentAdded }) {
   const [newComment, setNewComment] = useState("");
   const [rating, setRating] = useState(5);
   const [comments, setComments] = useState([]);
+  const commentStats = buildPlaceStats(comments)[Number(placeId)] || { count: 0, totalRating: 0, average: null };
+  const ratingRows = [5, 4, 3, 2, 1].map((stars) => {
+    const total = comments.filter((comment) => Number(comment.rating) === stars).length;
+    const percent = commentStats.count > 0 ? Math.round((total / commentStats.count) * 100) : 0;
+    return { stars, percent };
+  });
 
   useEffect(() => {
     db.getComments(placeId).then(setComments);
@@ -558,6 +614,7 @@ function Comments({ go, placeId, currentUser, showNotice }) {
     try {
       const savedComment = await db.addComment({ placeId, user: currentUser, text: newComment.trim(), rating });
       setComments((items) => [savedComment, ...items]);
+      handleCommentAdded(savedComment);
       setNewComment("");
       setRating(5);
       showNotice("Comentario guardado.");
@@ -571,16 +628,28 @@ function Comments({ go, placeId, currentUser, showNotice }) {
       <header className="comments-header">
         <div className="container narrow header-row">
           <button className="icon-button" onClick={() => go("detail", placeId)}><Icon name="back" /></button>
-          <div><h1>Comentarios y Resenas</h1><p>{comments.length} resenas</p></div>
+          <div><h1>Comentarios y Resenas</h1><p>{commentStats.count} {commentStats.count === 1 ? "comentario" : "comentarios"}</p></div>
         </div>
       </header>
       <main className="container narrow main-space comments-main">
         <section className="rating-panel">
           <h2>Calificacion general</h2>
-          <div className="rating-summary"><strong>4.8</strong><div><StarRow count={5} /><p>Basado en {comments.length} resenas</p></div></div>
-          {[5, 4, 3, 2, 1].map((stars) => <div className="rating-bar" key={stars}><span>{stars}</span><Icon name="star" size={14} filled /><div><i style={{ width: stars === 5 ? "75%" : stars === 4 ? "20%" : "5%" }} /></div><span>{stars === 5 ? "75%" : stars === 4 ? "20%" : "5%"}</span></div>)}
+          <div className="rating-summary">
+            <strong>{commentStats.count > 0 ? commentStats.average : "0.0"}</strong>
+            <div>
+              {commentStats.count > 0 ? <StarRow count={Math.round(commentStats.average)} /> : <span className="no-rating">Sin valoraciones</span>}
+              <p>Basado en {commentStats.count} {commentStats.count === 1 ? "valoracion" : "valoraciones"}</p>
+            </div>
+          </div>
+          {ratingRows.map(({ stars, percent }) => <div className="rating-bar" key={stars}><span>{stars}</span><Icon name="star" size={14} filled /><div><i style={{ width: `${percent}%` }} /></div><span>{percent}%</span></div>)}
         </section>
-        <section className="comment-list">{comments.map((comment) => <CommentCard key={comment.id} comment={comment} />)}</section>
+        <section className="comment-list">
+          {comments.length === 0 ? (
+            <div className="empty-comments">Aun no hay comentarios. Se el primero en valorar este lugar.</div>
+          ) : (
+            comments.map((comment) => <CommentCard key={comment.id} comment={comment} />)
+          )}
+        </section>
       </main>
       <form className="comment-form" onSubmit={handleSubmit}>
         <div className="container narrow">
@@ -588,6 +657,113 @@ function Comments({ go, placeId, currentUser, showNotice }) {
           <div className="comment-input-row"><input value={newComment} onChange={(event) => setNewComment(event.target.value)} placeholder="Escribe tu comentario..." /><button disabled={!newComment.trim()}><Icon name="send" size={16} /> Enviar</button></div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function ProfilePage({ go, currentUser, favorites, logout, placeStats }) {
+  const [userComments, setUserComments] = useState([]);
+  const favoritePlaces = places.filter((place) => favorites.includes(place.id));
+  const averageRating = userComments.length > 0
+    ? Number((userComments.reduce((total, comment) => total + Number(comment.rating || 0), 0) / userComments.length).toFixed(1))
+    : null;
+
+  useEffect(() => {
+    if (currentUser) {
+      db.getUserComments(currentUser.id).then(setUserComments);
+    }
+  }, [currentUser]);
+
+  if (!currentUser) {
+    return (
+      <div className="app-page">
+        <main className="container narrow main-space bottom-safe">
+          <section className="profile-card">
+            <h1>Perfil</h1>
+            <p className="profile-muted">Inicia sesion para ver tu perfil, favoritos y comentarios.</p>
+            <button className="primary-button" onClick={() => go("login")}>Iniciar sesion</button>
+          </section>
+        </main>
+        <MobileNav go={go} active="profile" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-page">
+      <Header go={go} currentUser={currentUser} logout={logout} />
+      <main className="container main-space bottom-safe">
+        <section className="profile-hero">
+          <div className="profile-avatar"><Icon name="user" size={36} /></div>
+          <div>
+            <h1>{currentUser.name}</h1>
+            <p>{currentUser.email}</p>
+          </div>
+          <button className="logout-button profile-logout" onClick={logout}>Cerrar sesion</button>
+        </section>
+
+        <section className="profile-stats">
+          <ProfileStat label="Favoritos" value={favorites.length} />
+          <ProfileStat label="Comentarios" value={userComments.length} />
+          <ProfileStat label="Promedio dado" value={averageRating ? averageRating : "0.0"} />
+        </section>
+
+        <section className="profile-section">
+          <div className="section-head">
+            <h2>Mis favoritos</h2>
+          </div>
+          {favoritePlaces.length === 0 ? (
+            <div className="empty-comments">Aun no tienes favoritos. Guarda destinos tocando el corazon.</div>
+          ) : (
+            <div className="profile-list">
+              {favoritePlaces.map((place) => (
+                <button className="profile-place" key={place.id} onClick={() => go("detail", place.id)}>
+                  <img src={place.image} alt={place.name} />
+                  <span>
+                    <strong>{place.name}</strong>
+                    <small>{getPlaceStats(placeStats, place.id).count} comentarios</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="profile-section">
+          <div className="section-head">
+            <h2>Mis comentarios</h2>
+          </div>
+          {userComments.length === 0 ? (
+            <div className="empty-comments">Todavia no has publicado comentarios.</div>
+          ) : (
+            <div className="profile-list">
+              {userComments.map((comment) => {
+                const place = places.find((item) => item.id === Number(comment.place_id));
+                return (
+                  <button className="profile-comment" key={comment.id} onClick={() => go("comments", Number(comment.place_id))}>
+                    <span>
+                      <strong>{place?.name || "Destino"}</strong>
+                      <small>{comment.date}</small>
+                    </span>
+                    <span className="rating"><Icon name="star" size={16} filled /> {comment.rating}</span>
+                    <p>{comment.text}</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </main>
+      <MobileNav go={go} active="profile" />
+    </div>
+  );
+}
+
+function ProfileStat({ label, value }) {
+  return (
+    <div className="profile-stat">
+      <strong>{value}</strong>
+      <span>{label}</span>
     </div>
   );
 }
@@ -619,7 +795,7 @@ function MobileNav({ go, active }) {
       <button className={active === "home" ? "active" : ""} onClick={() => go("home")}><Icon name="map" /><span>Inicio</span></button>
       <button onClick={() => go("search")}><Icon name="search" /><span>Buscar</span></button>
       <button><Icon name="heart" /><span>Favoritos</span></button>
-      <button><Icon name="user" /><span>Perfil</span></button>
+      <button className={active === "profile" ? "active" : ""} onClick={() => go("profile")}><Icon name="user" /><span>Perfil</span></button>
     </nav>
   );
 }

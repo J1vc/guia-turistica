@@ -210,6 +210,23 @@ export const db = {
     return readLocalDb().comments.filter((comment) => Number(comment.place_id) === Number(placeId));
   },
 
+  async getAllComments() {
+    if (useSupabase) {
+      return supabaseRequest("comments?select=place_id,rating");
+    }
+
+    return readLocalDb().comments;
+  },
+
+  async getUserComments(userId) {
+    if (!userId) return [];
+    if (useSupabase) {
+      return supabaseRequest(`comments?user_id=eq.${userId}&select=*&order=created_at.desc`);
+    }
+
+    return readLocalDb().comments.filter((comment) => comment.user_id === userId);
+  },
+
   async addComment({ placeId, user, text, rating }) {
     if (!user) throw new Error("Debes iniciar sesion para comentar.");
     const comment = {
