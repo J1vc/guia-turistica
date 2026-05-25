@@ -29,6 +29,23 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const useSupabase = Boolean(supabaseUrl && supabaseAnonKey);
 
+function readableError(message) {
+  const text = String(message || "");
+
+  if (text.includes("User already registered")) return "Ya existe una cuenta con ese correo.";
+  if (text.includes("Invalid login credentials")) return "Correo o contrasena incorrectos.";
+  if (text.includes("Email not confirmed")) return "Debes confirmar tu correo antes de iniciar sesion.";
+  if (text.includes("row-level security")) return "Supabase rechazo la accion por permisos de la tabla.";
+  if (text.includes("Failed to fetch")) return "No se pudo conectar con Supabase. Revisa las variables de entorno en Vercel.";
+
+  try {
+    const parsed = JSON.parse(text);
+    return parsed.msg || parsed.message || parsed.error_description || parsed.error || text;
+  } catch {
+    return text || "Ocurrio un error inesperado.";
+  }
+}
+
 function createSeed() {
   return {
     users: [],
@@ -79,7 +96,7 @@ async function supabaseRequest(path, options = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new Error(readableError(await response.text()));
   }
 
   if (response.status === 204) return null;
@@ -97,7 +114,7 @@ async function supabaseAuth(path, body) {
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new Error(readableError(await response.text()));
   }
 
   return response.json();
